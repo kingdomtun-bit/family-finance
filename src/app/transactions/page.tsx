@@ -23,6 +23,7 @@ export default function TransactionsPage() {
   const [scanError, setScanError] = useState('')
   const [scanPreview, setScanPreview] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     type: 'expense' as 'income' | 'expense',
@@ -155,7 +156,7 @@ export default function TransactionsPage() {
             variant="secondary"
             size="sm"
             disabled={scanning}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => galleryInputRef.current?.click()}
           >
             {scanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
             {lang === 'th' ? 'สแกนบิล' : 'Scan Bill'}
@@ -168,6 +169,13 @@ export default function TransactionsPage() {
             type="file"
             accept="image/*"
             capture="environment"
+            className="hidden"
+            onChange={handleScanFile}
+          />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
             className="hidden"
             onChange={handleScanFile}
           />
