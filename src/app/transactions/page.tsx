@@ -1,16 +1,16 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useStore } from '@/hooks/useStore'
 import { useLanguage } from '@/hooks/useLanguage'
 import { t } from '@/lib/i18n'
-import { formatCurrency, formatDate, isThisMonth } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, BANK_NAMES } from '@/types'
-import { Plus, Trash2, ArrowUpRight, ArrowDownLeft, Search, Filter } from 'lucide-react'
+import { Plus, Trash2, ArrowUpRight, ArrowDownLeft, Search, Camera, Loader2 } from 'lucide-react'
 
 export default function TransactionsPage() {
   const { lang } = useLanguage()
@@ -19,6 +19,10 @@ export default function TransactionsPage() {
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all')
   const [filterMonth, setFilterMonth] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState('')
+  const [scanPreview, setScanPreview] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     type: 'expense' as 'income' | 'expense',
@@ -30,7 +34,47 @@ export default function TransactionsPage() {
     member_id: '',
   })
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setScanning(true)
+    setScanError('')
+
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string
+      setScanPreview(dataUrl)
+      const base64 = dataUrl.split(',')[1]
+      const mediaType = file.type || 'image/jpeg'
+
+      try {
+        const res = await fetch('/api/scan-bill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64, mediaType }),
+        })
+        if (!res.ok) throw new Error('scan failed')
+        const data = await res.json()
+        setForm(f => ({
+          ...f,
+          type: data.type === 'income' ? 'income' : 'expense',
+          amount: String(data.amount || ''),
+          category: data.category || (data.type === 'income' ? 'salary' : 'food'),
+          description: data.merchant ? `${data.merchant}${data.description ? ' - ' + data.description : ''}` : (data.description || ''),
+          date: data.date || f.date,
+        }))
+        setAddOpen(true)
+      } catch {
+        setScanError(lang === 'th' ? 'สแกนไม่สำเร็จ กรุณาลองใหม่' : 'Scan failed, please try again')
+      } finally {
+        setScanning(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleAdd = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!form.account_id) return
     store.addTransaction({
@@ -106,10 +150,31 @@ export default function TransactionsPage() {
             value={filterMonth}
             onChange={e => setFilterMonth(e.target.value)}
           />
-          <Button onClick={() => setAddOpen(true)} size="sm">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={scanning}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {scanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+            {lang === 'th' ? 'สแกนบิล' : 'Scan Bill'}
+          </Button>
+          <Button onClick={() => { setScanPreview(''); setAddOpen(true) }} size="sm">
             <Plus size={16} /> {t('addTransaction', lang)}
           </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleScanFile}
+          />
         </div>
+        {scanError && (
+          <p className="text-sm text-red-500 text-center">{scanError}</p>
+        )}
 
         {/* List */}
         <Card className="p-0 overflow-hidden">
@@ -156,8 +221,16 @@ export default function TransactionsPage() {
         </Card>
       </div>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title={t('addTransaction', lang)}>
+      <Modal open={addOpen} onClose={() => { setAddOpen(false); setScanPreview('') }} title={t('addTransaction', lang)}>
         <form onSubmit={handleAdd} className="space-y-4">
+          {scanPreview && (
+            <div className="rounded-xl overflow-hidden border border-indigo-200 dark:border-indigo-800">
+              <img src={scanPreview} alt="scanned bill" className="w-full max-h-40 object-contain bg-gray-50 dark:bg-gray-800" />
+              <p className="text-xs text-center text-indigo-600 dark:text-indigo-400 py-1 bg-indigo-50 dark:bg-indigo-900/30">
+                {lang === 'th' ? '✓ สแกนบิลสำเร็จ — ตรวจสอบข้อมูลก่อนบันทึก' : '✓ Bill scanned — please verify before saving'}
+              </p>
+            </div>
+          )}
           {/* Type toggle */}
           <div className="flex gap-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
             {(['income', 'expense'] as const).map(tp => (
