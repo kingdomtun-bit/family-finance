@@ -36,25 +36,30 @@ export default function TransactionsPage() {
   })
 
   const compressImage = (file: File): Promise<{ base64: string; mediaType: string }> => {
-    return new Promise((resolve) => {
-      const img = new Image()
-      const url = URL.createObjectURL(file)
-      img.onload = () => {
-        const MAX = 1024
-        let { width, height } = img
-        if (width > MAX || height > MAX) {
-          if (width > height) { height = Math.round(height * MAX / width); width = MAX }
-          else { width = Math.round(width * MAX / height); height = MAX }
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(new Error('Cannot read file'))
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string
+        const img = new Image()
+        img.onerror = () => reject(new Error('Cannot load image'))
+        img.onload = () => {
+          const MAX = 1024
+          let { width, height } = img
+          if (width > MAX || height > MAX) {
+            if (width > height) { height = Math.round(height * MAX / width); width = MAX }
+            else { width = Math.round(width * MAX / height); height = MAX }
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+          const compressed = canvas.toDataURL('image/jpeg', 0.8)
+          resolve({ base64: compressed.split(',')[1], mediaType: 'image/jpeg' })
         }
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-        URL.revokeObjectURL(url)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-        resolve({ base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' })
+        img.src = dataUrl
       }
-      img.src = url
+      reader.readAsDataURL(file)
     })
   }
 
