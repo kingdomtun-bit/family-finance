@@ -35,44 +35,64 @@ export default function TransactionsPage() {
     member_id: '',
   })
 
+  const compressImage = (file: File): Promise<{ base64: string; mediaType: string }> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        const MAX = 1024
+        let { width, height } = img
+        if (width > MAX || height > MAX) {
+          if (width > height) { height = Math.round(height * MAX / width); width = MAX }
+          else { width = Math.round(width * MAX / height); height = MAX }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+        URL.revokeObjectURL(url)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+        resolve({ base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' })
+      }
+      img.src = url
+    })
+  }
+
   const handleScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setScanning(true)
     setScanError('')
 
-    const reader = new FileReader()
-    reader.onload = async (ev) => {
-      const dataUrl = ev.target?.result as string
-      setScanPreview(dataUrl)
-      const base64 = dataUrl.split(',')[1]
-      const mediaType = file.type || 'image/jpeg'
+    try {
+      const { base64, mediaType } = await compressImage(file)
+      setScanPreview(`data:image/jpeg;base64,${base64}`)
 
-      try {
-        const res = await fetch('/api/scan-bill', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64, mediaType }),
-        })
-        if (!res.ok) throw new Error('scan failed')
-        const data = await res.json()
-        setForm(f => ({
-          ...f,
-          type: data.type === 'income' ? 'income' : 'expense',
-          amount: String(data.amount || ''),
-          category: data.category || (data.type === 'income' ? 'salary' : 'food'),
-          description: data.merchant ? `${data.merchant}${data.description ? ' - ' + data.description : ''}` : (data.description || ''),
-          date: data.date || f.date,
-        }))
-        setAddOpen(true)
-      } catch {
-        setScanError(lang === 'th' ? 'สแกนไม่สำเร็จ กรุณาลองใหม่' : 'Scan failed, please try again')
-      } finally {
-        setScanning(false)
-        if (fileInputRef.current) fileInputRef.current.value = ''
-      }
+      const res = await fetch('/api/scan-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64, mediaType }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'scan failed')
+
+      setForm(f => ({
+        ...f,
+        type: data.type === 'income' ? 'income' : 'expense',
+        amount: String(data.amount || ''),
+        category: data.category || (data.type === 'income' ? 'salary' : 'food'),
+        description: data.merchant ? `${data.merchant}${data.description ? ' - ' + data.description : ''}` : (data.description || ''),
+        date: data.date || f.date,
+      }))
+      setAddOpen(true)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'unknown error'
+      setScanError(lang === 'th' ? `สแกนไม่สำเร็จ: ${msg}` : `Scan failed: ${msg}`)
+    } finally {
+      setScanning(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (galleryInputRef.current) galleryInputRef.current.value = ''
     }
-    reader.readAsDataURL(file)
   }
 
   const handleAdd = (e: React.SyntheticEvent<HTMLFormElement>) => {
