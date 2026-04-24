@@ -65,7 +65,11 @@ export default function TransactionsPage() {
             resolve({ base64: rawBase64, mediaType: rawType })
           }
         }
-        img.src = dataUrl
+        try {
+          img.src = dataUrl
+        } catch {
+          resolve({ base64: rawBase64, mediaType: rawType })
+        }
       }
       reader.readAsDataURL(file)
     })
