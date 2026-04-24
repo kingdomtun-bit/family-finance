@@ -41,21 +41,29 @@ export default function TransactionsPage() {
       reader.onerror = () => reject(new Error('Cannot read file'))
       reader.onload = (ev) => {
         const dataUrl = ev.target?.result as string
+        const rawBase64 = dataUrl.split(',')[1]
+        const rawType = file.type || 'image/jpeg'
+
+        // Try canvas compression; fall back to raw if browser can't render (e.g. HEIC)
         const img = new Image()
-        img.onerror = () => reject(new Error('Cannot load image'))
+        img.onerror = () => resolve({ base64: rawBase64, mediaType: rawType })
         img.onload = () => {
-          const MAX = 1024
-          let { width, height } = img
-          if (width > MAX || height > MAX) {
-            if (width > height) { height = Math.round(height * MAX / width); width = MAX }
-            else { width = Math.round(width * MAX / height); height = MAX }
+          try {
+            const MAX = 1024
+            let { width, height } = img
+            if (width > MAX || height > MAX) {
+              if (width > height) { height = Math.round(height * MAX / width); width = MAX }
+              else { width = Math.round(width * MAX / height); height = MAX }
+            }
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+            const compressed = canvas.toDataURL('image/jpeg', 0.8)
+            resolve({ base64: compressed.split(',')[1], mediaType: 'image/jpeg' })
+          } catch {
+            resolve({ base64: rawBase64, mediaType: rawType })
           }
-          const canvas = document.createElement('canvas')
-          canvas.width = width
-          canvas.height = height
-          canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-          const compressed = canvas.toDataURL('image/jpeg', 0.8)
-          resolve({ base64: compressed.split(',')[1], mediaType: 'image/jpeg' })
         }
         img.src = dataUrl
       }
