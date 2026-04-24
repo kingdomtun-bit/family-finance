@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
+export const maxDuration = 60
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 
 export async function POST(req: NextRequest) {
@@ -8,49 +10,51 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
   }
 
-  const { image, mediaType } = await req.json()
+  let image: string, mediaType: string
+  try {
+    const body = await req.json()
+    image = body.image
+    mediaType = body.mediaType
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
   if (!image) {
     return NextResponse.json({ error: 'No image provided' }, { status: 400 })
   }
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-  const result = await model.generateContent([
-    {
-      inlineData: {
-        mimeType: mediaType || 'image/jpeg',
-        data: image,
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: (mediaType as 'image/jpeg') || 'image/jpeg',
+          data: image,
+        },
       },
-    },
-    `Analyze this receipt/bill image and extract the following information. Return ONLY valid JSON, no explanation.
+      `Analyze this receipt/bill image. Return ONLY a JSON object, no markdown, no explanation.
 
-{
-  "amount": <number, total amount in the bill, no currency symbol>,
-  "date": "<YYYY-MM-DD format, today if not visible>",
-  "merchant": "<store/merchant name or empty string>",
-  "type": "<'income' or 'expense' — bills/receipts are usually 'expense'>",
-  "category": "<one of: food, transport, housing, utilities, health, entertainment, shopping, insurance, savings_transfer, salary, freelance, rental, bonus, other>",
-  "description": "<brief description in Thai or English based on the content>"
-}
+{"amount":0,"date":"YYYY-MM-DD","merchant":"","type":"expense","category":"other","description":""}
 
 Rules:
-- amount must be a number (e.g. 250.00)
-- category 'food' for restaurants, grocery, food delivery
-- category 'transport' for fuel, taxi, BTS, MRT, parking
-- category 'health' for pharmacy, hospital, clinic
-- category 'shopping' for retail stores, online shopping
-- category 'utilities' for electric, water, internet, phone bills
-- category 'entertainment' for movies, games, subscriptions
-- If unclear, use 'other'
-- date today is ${new Date().toISOString().split('T')[0]}`,
-  ])
+- amount = total number only (e.g. 900)
+- type = "income" if receiving money, "expense" if paying
+- category: food, transport, housing, utilities, health, entertainment, shopping, insurance, savings_transfer, salary, freelance, rental, bonus, other
+- date today = ${new Date().toISOString().split('T')[0]}
+- For Thai bank transfer screenshots: type="expense", category="other"`,
+    ])
 
-  const text = result.response.text()
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    return NextResponse.json({ error: 'Could not parse bill data' }, { status: 422 })
+    const text = result.response.text().trim()
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      return NextResponse.json({ error: `No JSON in response: ${text.slice(0, 100)}` }, { status: 422 })
+    }
+
+    const data = JSON.parse(jsonMatch[0])
+    return NextResponse.json(data)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  const data = JSON.parse(jsonMatch[0])
-  return NextResponse.json(data)
 }
